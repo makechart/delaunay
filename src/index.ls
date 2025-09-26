@@ -1,7 +1,7 @@
 module.exports =
   pkg:
     name: 'scatter', version: '0.0.1'
-    extend: {name: "base", version: "0.0.1"}
+    extend: {name: "@makechart/base"}
     dependencies: [
       { url: "https://cdn.jsdelivr.net/npm/d3-delaunay@6/dist/d3-delaunay.min.js" }
     ]
