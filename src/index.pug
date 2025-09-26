@@ -1,0 +1,30 @@
+div
+  div(plug="layout")
+    .pdl-layout
+      div(data-type="layout")
+        .pdl-cell(data-name="axis-left")
+        .pdl-cell(data-name="view")
+        .pdl-cell
+        .pdl-cell(data-name="axis-bottom")
+        .pdl-cell(data-name="legend")
+      div(data-type="render")
+  style(type="text/css"): :stylus
+    .pdl-layout > div[data-type=layout]
+      display: grid
+      grid-template-columns: 2em 1fr
+      grid-template-rows: 1fr 1em 3em
+      padding: 20px 20px 0 20px
+      .pdl-cell[data-name=legend]
+        grid-column: 1 / span 2
+        grid-row: 3
+    /*
+    .pdl-layout > div[data-type=layout]
+      display: grid
+      grid-template-columns: 2em 1fr 5em
+      grid-template-rows: 1fr 1em
+      padding: 20px 20px 0 20px
+      .pdl-cell[data-name=legend]
+        grid-column: 3
+        grid-row: 1 / span 2
+    */
+  script(type="@plotdb/block"): include:lsc index.ls
