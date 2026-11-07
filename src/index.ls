@@ -1,9 +1,11 @@
 module.exports =
   pkg:
-    name: 'scatter', version: '0.0.1'
-    extend: {name: "@makechart/base"}
+    name: 'delaunay', version: '0.0.1'
+    # lite: 不帶 d3 的 base ( 見 @plotdb/chart utils )
+    extend: {name: "@makechart/base", path: "lite/index.html"}
+    # d3-delaunay 的 UMD 已內含 delaunator, 不需要 d3 core
     dependencies: [
-      { url: "https://cdn.jsdelivr.net/npm/d3-delaunay@6/dist/d3-delaunay.min.js" }
+    * name: \d3-delaunay, version: "6.0.4", path: "dist/d3-delaunay.min.js", async: false
     ]
 
   init: ({root, context, pubsub}) ->
@@ -11,6 +13,31 @@ module.exports =
 
 mod = ({context}) ->
   {d3,chart} = context
+  {scale: Scale, anim: {join}} = chart.utils
+  svgns = "http://www.w3.org/2000/svg"
+  # 同 d3.extent: 略過 null / NaN
+  extent = (list) ->
+    vs = list.filter -> it? and +it >= +it
+    if vs.length => [vs.reduce(((a,b) -> if b < a => b else a)), vs.reduce(((a,b) -> if b > a => b else a))]
+    else [undefined, undefined]
+  # 同 d3.polygonArea / d3.polygonCentroid ( 移植自 d3-polygon, ISC )
+  polygon-area = (p) ->
+    [n, b, area] = [p.length, p[p.length - 1], 0]
+    for i from 0 til n
+      a = b
+      b = p[i]
+      area += a.1 * b.0 - a.0 * b.1
+    area / 2
+  polygon-centroid = (p) ->
+    [n, x, y, k, b] = [p.length, 0, 0, 0, p[p.length - 1]]
+    for i from 0 til n
+      a = b
+      b = p[i]
+      k += c = a.0 * b.1 - b.0 * a.1
+      x += (a.0 + b.0) * c
+      y += (a.1 + b.1) * c
+    k *= 3
+    [x / k, y / k]
   names = [
     "The Glenn Miller Story",
     "The Fifth Element",
@@ -46,20 +73,20 @@ mod = ({context}) ->
     name: {type: \N, name: "name"}
   init: ->
     @tint = tint = new chart.utils.tint!
-    <[view yaxis xaxis]>.map ~> @{}g[it] = d3.select(@layout.get-group(it))
-    @path = d3.select @svg .append \path
+    <[view yaxis xaxis]>.map ~> @{}g[it] = @layout.get-group(it)
+    @path = @svg.appendChild document.createElementNS(svgns, \path)
 
   parse: ->
 
   resize: ->
     [w,h] = [@box.width, @box.height]
     @extent =
-      x: d3.extent @data.map -> it.x
-      y: d3.extent @data.map -> it.y
+      x: extent @data.map -> it.x
+      y: extent @data.map -> it.y
     box = @layout.get-box \view
     @scale =
-      x: d3.scaleLinear!domain @extent.x .range [0, box.width]
-      y: d3.scaleLinear!domain @extent.y .range [0, box.height]
+      x: Scale.linear!domain @extent.x .range [0, box.width]
+      y: Scale.linear!domain @extent.y .range [0, box.height]
     @pts = @data.map (d) ~> [@scale.x(d.x), @scale.y(d.y)]
     @delaunay = d3.Delaunay.from @pts
     @voronoi = @delaunay.voronoi [0, 0, box.width, box.height]
@@ -67,39 +94,44 @@ mod = ({context}) ->
       .map (point,i) ~>
         [x,y] = point
         polygon = @voronoi.cellPolygon i
-        [cx,cy] = centroid = d3.polygonCentroid polygon
-        area = -d3.polygonArea polygon
+        [cx,cy] = centroid = polygon-centroid polygon
+        area = -polygon-area polygon
         angle = (Math.round(Math.atan2(cy - y, cx - x) / Math.PI * 2) + 4) % 4
         {point, polygon, centroid, area, angle}
 
   render: ->
     {scale} = @
-    @g.view.selectAll \circle.data .data @data
-      ..exit!remove!
-      ..enter!append \circle .attr \class, \data
-        .attr \cx, (d,i) -> scale.x d.x
-        .attr \cy, (d,i) -> scale.y d.y
-        .attr \r, 3
-        .attr \fill, \#000
-    @g.view.selectAll \text .data @data
-      ..exit!remove!
-      ..enter!append \text
-        .text (d,i) -> d.name
-        .attr \x, (d,i) -> if d.nb => d.nb.x else scale.x(d.x)
-        .attr \y, (d,i) -> if d.nb => d.nb.y else scale.y(d.y)
-        .attr \text-anchor, \middle
-        .attr \dominant-baseline, \middle
-    @g.view.selectAll \text .data @data
-      .attr \x, (d,i) -> if d.nb => d.nb.x else scale.x(d.x)
-      .attr \y, (d,i) -> if d.nb => d.nb.y else scale.y(d.y) - 20
-      .attr \opacity, (d,i) -> if d.nb => (if d.nb.show => 1 else 0) else 1
-    @path
-      .attr \d, @voronoi.render!
-      .attr \stroke, \#000
-      .attr \transform, @g.view.node!getAttribute(\transform)
+    pos = (d) -> [(if d.nb => d.nb.x else scale.x(d.x)), (if d.nb => d.nb.y else scale.y(d.y))]
+    cj = join root: @g.view, tag: \circle, cls: \data, data: @data
+    cj.exit.map -> it.remove!
+    cj.enter.map (n) ->
+      d = n.__data__
+      n.setAttribute \cx, scale.x d.x
+      n.setAttribute \cy, scale.y d.y
+      n.setAttribute \r, 3
+      n.setAttribute \fill, \#000
+    tj = join root: @g.view, tag: \text, data: @data
+    tj.exit.map -> it.remove!
+    tj.enter.map (n) ->
+      d = n.__data__
+      n.textContent = d.name
+      [x, y] = pos d
+      n.setAttribute \x, x
+      n.setAttribute \y, y
+      n.setAttribute \text-anchor, \middle
+      n.setAttribute \dominant-baseline, \middle
+    tj.nodes.map (n) ->
+      d = n.__data__
+      n.setAttribute \x, if d.nb => d.nb.x else scale.x(d.x)
+      n.setAttribute \y, if d.nb => d.nb.y else scale.y(d.y) - 20
+      n.setAttribute \opacity, if d.nb => (if d.nb.show => 1 else 0) else 1
+    @path.setAttribute \d, @voronoi.render!
+    @path.setAttribute \stroke, \#000
+    if (t = @g.view.getAttribute(\transform))? => @path.setAttribute \transform, t
+    else @path.removeAttribute \transform
   tick: ->
     scale = @scale
-    @g.view.selectAll \text .each (d,i) -> d.box = @getBoundingClientRect!
+    Array.from(@g.view.querySelectorAll ':scope > text').map -> it.__data__.box = it.getBoundingClientRect!
     rbox = @layout.get-box \view
     for i from 0 til @data.length =>
       d = @data[i].box
